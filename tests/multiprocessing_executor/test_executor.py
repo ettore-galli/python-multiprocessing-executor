@@ -3,16 +3,29 @@ from collections.abc import Generator
 from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import cast
 
 from multiprocessing_executor.executor.executor import (
     FeedbackWriter,
     MultiprocessingExecutor,
+    MultiprocessingExecutorPayload,
     MultiprocessingExecutorProperties,
 )
 
 
-def item_processor(tempdir: str, feedback_writer: FeedbackWriter, item: str) -> None:
+class ExampleExecutorPayload(MultiprocessingExecutorPayload):
+    def __init__(self, item: str) -> None:
+        super().__init__()
+        self.item = item
+
+
+def item_processor(
+    tempdir: str,
+    feedback_writer: FeedbackWriter,
+    payload: MultiprocessingExecutorPayload,
+) -> None:
     processed_item = "Processed: {item}"
+    item: str = cast(ExampleExecutorPayload, payload).item
     outfile = Path(tempdir, item)
     with Path.open(outfile, "w", encoding="utf-8") as workf:
         workf.write(processed_item)
@@ -29,9 +42,9 @@ def item_feedback_processor(tempdir: str, *args: tuple, **_: dict) -> None:
 def test_multiprocessing_executor_process() -> None:
     tmpdir = TemporaryDirectory("multi-processing")
 
-    def data_source() -> Generator[str, None, None]:
+    def data_source() -> Generator[ExampleExecutorPayload, None, None]:
         for index in range(10):
-            yield f"test_input_{index + 1}"
+            yield ExampleExecutorPayload(item=f"test_input_{index + 1}")
 
     properties = MultiprocessingExecutorProperties(
         workers=3,

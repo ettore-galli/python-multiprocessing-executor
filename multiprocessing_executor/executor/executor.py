@@ -5,26 +5,28 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from functools import partial
 from multiprocessing import Queue
-from typing import Any
+from typing import Any, Protocol
 
 
-class PoisonPill:
+class MultiprocessingExecutorPoisonPill:
     pass
 
 
-class Payload:
+class MultiprocessingExecutorPayload:
     pass
 
 
 FeedbackWriter = Callable[[Any], None]
 
-ProcessingWorker = Callable[[Queue], None]
 
-FeedbackWorker = Callable[[Queue], None]
+class ItemProcessor(Protocol):
+    def __call__(
+        self, feedback_writer: FeedbackWriter, item: MultiprocessingExecutorPayload
+    ) -> None: ...
 
-ItemProcessor = Callable[[FeedbackWriter, Any], None]
 
-ItemFeedbackProcessor = Callable[[Any], None]
+class ItemFeedbackProcessor(Protocol):
+    def __call__(self, *args: tuple, **_: dict) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -40,7 +42,7 @@ def processing_worker(
 ) -> None:
     while True:
         item = queue.get()
-        if isinstance(item, PoisonPill):
+        if isinstance(item, MultiprocessingExecutorPoisonPill):
             break
         item_processor(feedback_writer, item)
 
@@ -50,7 +52,7 @@ def feedback_worker(
 ) -> None:
     while True:
         item = queue.get()
-        if isinstance(item, PoisonPill):
+        if isinstance(item, MultiprocessingExecutorPoisonPill):
             break
         args, kwargs = item
         item_feedback_processor(*args, **kwargs)
@@ -65,7 +67,9 @@ class MultiprocessingExecutor:
 
         self.input_queue: Queue = Queue()
         self.feedback_queue: Queue = Queue()
-        self.feedback_writer = partial(feedback_writer, self.feedback_queue)
+        self.feedback_writer: FeedbackWriter = partial(
+            feedback_writer, self.feedback_queue
+        )
 
         self.properties: MultiprocessingExecutorProperties = properties
 
@@ -98,10 +102,10 @@ class MultiprocessingExecutor:
             self.input_queue.put(item)
 
         for _ in range(self.properties.workers):
-            self.input_queue.put(PoisonPill())
+            self.input_queue.put(MultiprocessingExecutorPoisonPill())
         self.input_queue.close()
 
         for process in work_processes:
             process.join()
 
-        self.feedback_queue.put(PoisonPill())
+        self.feedback_queue.put(MultiprocessingExecutorPoisonPill())
