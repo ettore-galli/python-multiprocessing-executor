@@ -1,2 +1,2 @@
-def test_inception():
-    assert 1 == 1
+def test_inception() -> None:
+    assert True
