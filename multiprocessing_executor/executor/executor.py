@@ -58,7 +58,7 @@ def feedback_worker(
         item_feedback_processor(*args, **kwargs)
 
 
-def feedback_writer(queue: Queue, *args: tuple, **kwargs: dict) -> None:
+def feedback_writer_template(queue: Queue, *args: tuple, **kwargs: dict) -> None:
     queue.put((args, kwargs))
 
 
@@ -68,7 +68,7 @@ class MultiprocessingExecutor:
         self.input_queue: Queue = Queue()
         self.feedback_queue: Queue = Queue()
         self.feedback_writer: FeedbackWriter = partial(
-            feedback_writer, self.feedback_queue
+            feedback_writer_template, self.feedback_queue
         )
 
         self.properties: MultiprocessingExecutorProperties = properties
