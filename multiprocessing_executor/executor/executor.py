@@ -18,7 +18,7 @@ class MultiprocessingExecutorPayload:
     pass
 
 
-FeedbackWriter = Callable[..., None]
+FeedbackWriter = Callable[[tuple[Any, ...]], None]
 
 
 class ProcessingWorker(Protocol):
@@ -47,8 +47,8 @@ def get_from_queue(
         yield item
 
 
-def feedback_writer_template(queue: Queue, *args: tuple, **kwargs: dict) -> None:
-    queue.put((args, kwargs))
+def feedback_writer_template(queue: Queue, args: tuple[Any, ...]) -> None:
+    queue.put(args)
 
 
 class MultiprocessingExecutor:

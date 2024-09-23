@@ -35,10 +35,10 @@ def processing_worker(
     payload: ExampleExecutorPayload
 
     def write_feedback_a(feedback: str) -> None:
-        feedback_writer(FeedbackType.A, f"{FeedbackType.A}{feedback}")
+        feedback_writer((FeedbackType.A, f"{FeedbackType.A}{feedback}"))
 
     def write_feedback_b(feedback: str) -> None:
-        feedback_writer(FeedbackType.B, f"{FeedbackType.B}{feedback}")
+        feedback_writer((FeedbackType.B, f"{FeedbackType.B}{feedback}"))
 
     for payload in get_from_queue(queue):
         content = payload.item
@@ -63,8 +63,7 @@ def feedback_worker(tmpdir: Path, queue: Queue) -> None:
             FeedbackType.B: logf_b,
         }
         for payload in get_from_queue(queue):
-            args, _ = payload
-            feedback_type, feedback_message = args
+            feedback_type, feedback_message = payload
             log_message = f"Feedback for: {feedback_message}\n"
             strategy.get(feedback_type, logf_a).write(log_message)
 
