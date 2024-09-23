@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import multiprocessing
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Generator, Iterable
 from dataclasses import dataclass
 from functools import partial
 from multiprocessing import Queue
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
 
 
 class MultiprocessingExecutorPoisonPill:
@@ -37,13 +37,23 @@ class MultiprocessingExecutorProperties:
     task_source: Iterable[Any]
 
 
+QC = TypeVar("QC")
+
+
+def get_from_queue(
+    queue: Queue[QC],
+) -> Generator[QC, None, None]:
+    while True:
+        item: QC = queue.get()
+        if isinstance(item, MultiprocessingExecutorPoisonPill):
+            break
+        yield item
+
+
 def processing_worker(
     queue: Queue, feedback_writer: FeedbackWriter, item_processor: ItemProcessor
 ) -> None:
-    while True:
-        item = queue.get()
-        if isinstance(item, MultiprocessingExecutorPoisonPill):
-            break
+    for item in get_from_queue(queue):
         item_processor(feedback_writer, item)
 
 
