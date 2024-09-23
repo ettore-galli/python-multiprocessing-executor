@@ -7,6 +7,8 @@ from functools import partial
 from multiprocessing import Queue
 from typing import Any, Protocol, TypeVar
 
+QC = TypeVar("QC")
+
 
 class MultiprocessingExecutorPoisonPill:
     pass
@@ -16,7 +18,7 @@ class MultiprocessingExecutorPayload:
     pass
 
 
-FeedbackWriter = Callable[[Any], None]
+FeedbackWriter = Callable[..., None]
 
 
 class ProcessingWorker(Protocol):
@@ -33,9 +35,6 @@ class MultiprocessingExecutorProperties:
     processing_worker: ProcessingWorker
     feedback_worker: FeedbackWorker
     task_source: Iterable[Any]
-
-
-QC = TypeVar("QC")
 
 
 def get_from_queue(

@@ -1,5 +1,6 @@
 import os
 from collections.abc import Generator
+from enum import Enum
 from functools import partial
 from multiprocessing import Queue
 from pathlib import Path
@@ -20,25 +21,52 @@ class ExampleExecutorPayload(MultiprocessingExecutorPayload):
         self.item = item
 
 
+class FeedbackType(Enum):
+    A = "A"
+    B = "B"
+
+
 def processing_worker(
-    tmpdir: str,
+    tmpdir: Path,
     queue: Queue,
     feedback_writer: FeedbackWriter,
 ) -> None:
-    for item in get_from_queue(queue):
-        content = item.item
+
+    payload: ExampleExecutorPayload
+
+    def write_feedback_a(feedback: str) -> None:
+        feedback_writer(FeedbackType.A, f"{FeedbackType.A}{feedback}")
+
+    def write_feedback_b(feedback: str) -> None:
+        feedback_writer(FeedbackType.B, f"{FeedbackType.B}{feedback}")
+
+    for payload in get_from_queue(queue):
+        content = payload.item
         outfile = Path(tmpdir, f"{content}-outfile.txt")
         with Path.open(outfile, "w", encoding="utf-8") as workf:
-            processed_item = f"Processed: {item}"
+            processed_item = f"Processed: {payload}"
             workf.write(processed_item)
-            feedback_writer(processed_item)
+            write_feedback_a(processed_item)
+            write_feedback_b(processed_item)
 
 
-def feedback_worker(logfile: Path, queue: Queue) -> None:
-    with Path.open(logfile, "w", encoding="utf-8") as logf:
-        for item in get_from_queue(queue):
-            log_message = f"Feedback for: {item}\n"
-            logf.write(log_message)
+def feedback_worker(tmpdir: Path, queue: Queue) -> None:
+    outfile_a = Path(tmpdir, "logfile-a.txt")
+    outfile_b = Path(tmpdir, "logfile-b.txt")
+
+    with (
+        Path.open(outfile_a, "w", encoding="utf-8") as logf_a,
+        Path.open(outfile_b, "w", encoding="utf-8") as logf_b,
+    ):
+        strategy = {
+            FeedbackType.A: logf_a,
+            FeedbackType.B: logf_b,
+        }
+        for payload in get_from_queue(queue):
+            args, _ = payload
+            feedback_type, feedback_message = args
+            log_message = f"Feedback for: {feedback_message}\n"
+            strategy.get(feedback_type, logf_a).write(log_message)
 
 
 def test_multiprocessing_executor_process() -> None:
@@ -50,12 +78,10 @@ def test_multiprocessing_executor_process() -> None:
         for index in range(data_size):
             yield ExampleExecutorPayload(item=f"test_input_{index + 1}")
 
-    logfile = Path(tmpdir.name, "logfile.txt")
-
     properties = MultiprocessingExecutorProperties(
         workers=3,
-        processing_worker=partial(processing_worker, tmpdir.name),
-        feedback_worker=partial(feedback_worker, logfile),
+        processing_worker=partial(processing_worker, Path(tmpdir.name)),
+        feedback_worker=partial(feedback_worker, Path(tmpdir.name)),
         task_source=data_source(),
     )
 
@@ -65,7 +91,8 @@ def test_multiprocessing_executor_process() -> None:
     files_list = os.listdir(tmpdir.name)
     assert sorted(files_list) == sorted(
         [
-            "logfile.txt",
+            "logfile-a.txt",
+            "logfile-b.txt",
             "test_input_1-outfile.txt",
             "test_input_10-outfile.txt",
             "test_input_2-outfile.txt",
@@ -85,9 +112,11 @@ def test_multiprocessing_executor_process() -> None:
                 assert len(outfile_content) == 1
                 assert "Processed: " in outfile_content[0]
 
-    with Path.open(Path(tmpdir.name, "logfile.txt")) as logf:
-        logfile_content = logf.readlines()
-        assert len(logfile_content) == data_size
+    for filename in files_list:
+        if "logfile" in filename:
+            with Path.open(Path(tmpdir.name, filename)) as logf:
+                logfile_content = logf.readlines()
+                assert len(logfile_content) == data_size
 
 
 if __name__ == "__main__":
