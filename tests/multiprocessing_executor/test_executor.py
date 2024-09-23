@@ -1,15 +1,16 @@
 import os
 from collections.abc import Generator
 from functools import partial
+from multiprocessing import Queue
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import cast
 
 from multiprocessing_executor.executor.executor import (
     FeedbackWriter,
     MultiprocessingExecutor,
     MultiprocessingExecutorPayload,
     MultiprocessingExecutorProperties,
+    get_from_queue,
 )
 
 
@@ -19,24 +20,23 @@ class ExampleExecutorPayload(MultiprocessingExecutorPayload):
         self.item = item
 
 
-def item_processor(
-    tempdir: str,
+def processing_worker(
+    outfile: Path,
+    queue: Queue,
     feedback_writer: FeedbackWriter,
-    payload: MultiprocessingExecutorPayload,
 ) -> None:
-    processed_item = "Processed: {item}"
-    item: str = cast(ExampleExecutorPayload, payload).item
-    outfile = Path(tempdir, item)
     with Path.open(outfile, "w", encoding="utf-8") as workf:
-        workf.write(processed_item)
-        feedback_writer(f"processed {item}")
+        for item in get_from_queue(queue):
+            processed_item = f"Processed: {item}"
+            workf.write(processed_item)
+            feedback_writer(processed_item)
 
 
-def item_feedback_processor(tempdir: str, *args: tuple, **_: dict) -> None:
-    item_feedback = "Feedback of: {item}"
-    outfile = Path(tempdir, f"{args[0]}_feedback")
-    with Path.open(outfile, "w", encoding="utf-8") as feedbackf:
-        feedbackf.write(item_feedback)
+def feedback_worker(logfile: Path, queue: Queue) -> None:
+    with Path.open(logfile, "w", encoding="utf-8") as logf:
+        for item in get_from_queue(queue):
+            log_message = f"Feedback for: {item}"
+            logf.write(log_message)
 
 
 def test_multiprocessing_executor_process() -> None:
@@ -46,10 +46,13 @@ def test_multiprocessing_executor_process() -> None:
         for index in range(10):
             yield ExampleExecutorPayload(item=f"test_input_{index + 1}")
 
+    logfile = Path(tmpdir.name, "logfile.txt")
+    outfile = Path(tmpdir.name, "outfile.txt")
+
     properties = MultiprocessingExecutorProperties(
         workers=3,
-        item_processor=partial(item_processor, tmpdir.name),
-        item_feedback_processor=partial(item_feedback_processor, tmpdir.name),
+        processing_worker=partial(processing_worker, outfile),
+        feedback_worker=partial(feedback_worker, logfile),
         task_source=data_source(),
     )
 
@@ -57,30 +60,7 @@ def test_multiprocessing_executor_process() -> None:
     executor.perform()
 
     files_list = os.listdir(tmpdir.name)
-    assert sorted(files_list) == sorted(
-        [
-            "processed test_input_10_feedback",
-            "processed test_input_1_feedback",
-            "processed test_input_2_feedback",
-            "processed test_input_3_feedback",
-            "processed test_input_4_feedback",
-            "processed test_input_5_feedback",
-            "processed test_input_6_feedback",
-            "processed test_input_7_feedback",
-            "processed test_input_8_feedback",
-            "processed test_input_9_feedback",
-            "test_input_1",
-            "test_input_2",
-            "test_input_3",
-            "test_input_4",
-            "test_input_5",
-            "test_input_6",
-            "test_input_7",
-            "test_input_8",
-            "test_input_9",
-            "test_input_10",
-        ]
-    )
+    assert sorted(files_list) == sorted(["logfile.txt", "outfile.txt"])
 
 
 if __name__ == "__main__":

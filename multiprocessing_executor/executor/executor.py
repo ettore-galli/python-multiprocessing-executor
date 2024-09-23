@@ -19,21 +19,19 @@ class MultiprocessingExecutorPayload:
 FeedbackWriter = Callable[[Any], None]
 
 
-class ItemProcessor(Protocol):
-    def __call__(
-        self, feedback_writer: FeedbackWriter, item: MultiprocessingExecutorPayload
-    ) -> None: ...
+class ProcessingWorker(Protocol):
+    def __call__(self, queue: Queue) -> None: ...
 
 
-class ItemFeedbackProcessor(Protocol):
-    def __call__(self, *args: tuple, **_: dict) -> None: ...
+class FeedbackWorker(Protocol):
+    def __call__(self, queue: Queue) -> None: ...
 
 
 @dataclass(frozen=True)
 class MultiprocessingExecutorProperties:
     workers: int
-    item_processor: ItemProcessor
-    item_feedback_processor: ItemFeedbackProcessor
+    processing_worker: ProcessingWorker
+    feedback_worker: FeedbackWorker
     task_source: Iterable[Any]
 
 
@@ -48,24 +46,6 @@ def get_from_queue(
         if isinstance(item, MultiprocessingExecutorPoisonPill):
             break
         yield item
-
-
-def processing_worker(
-    queue: Queue, feedback_writer: FeedbackWriter, item_processor: ItemProcessor
-) -> None:
-    for item in get_from_queue(queue):
-        item_processor(feedback_writer, item)
-
-
-def feedback_worker(
-    queue: Queue, item_feedback_processor: ItemFeedbackProcessor
-) -> None:
-    while True:
-        item = queue.get()
-        if isinstance(item, MultiprocessingExecutorPoisonPill):
-            break
-        args, kwargs = item
-        item_feedback_processor(*args, **kwargs)
 
 
 def feedback_writer_template(queue: Queue, *args: tuple, **kwargs: dict) -> None:
@@ -88,19 +68,16 @@ class MultiprocessingExecutor:
         multiprocessing_context = multiprocessing.get_context("spawn")
 
         feedback_process = multiprocessing_context.Process(
-            target=feedback_worker,
-            args=(self.feedback_queue, self.properties.item_feedback_processor),
+            target=self.properties.feedback_worker,
+            args=(self.feedback_queue,),
         )
+
         feedback_process.start()
 
         work_processes = [
             multiprocessing_context.Process(
-                target=processing_worker,
-                args=(
-                    self.input_queue,
-                    self.feedback_writer,
-                    self.properties.item_processor,
-                ),
+                target=self.properties.processing_worker,
+                args=(self.input_queue, self.feedback_writer),
             )
             for _ in range(self.properties.workers)
         ]
